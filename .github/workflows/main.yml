@@ -1,0 +1,41 @@
+name: Build LightPilot IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-ipa:
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Detect Scheme and Build Unsigned App
+        run: |
+          SCHEME=$(xcodebuild -project LightPilot.xcodeproj -list -json | python3 -c "import sys, json; print(json.load(sys.stdin)['project']['schemes'][0])")
+          echo "Building scheme: $SCHEME"
+          xcodebuild -project LightPilot.xcodeproj \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            clean build
+
+      - name: Package into .ipa
+        run: |
+          mkdir -p Payload
+          APP_PATH=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -n 1)
+          cp -r "$APP_PATH" Payload/
+          zip -r LightPilot.ipa Payload
+
+      - name: Upload LightPilot.ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: LightPilot-IPA
+          path: LightPilot.ipa
