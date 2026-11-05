@@ -12,6 +12,37 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Patch BLELightEngine for Auto-Discovery in AUv3
+        run: |
+          python3 - << 'EOF'
+          with open("Shared/BLELightEngine.swift", "r") as f:
+              code = f.read()
+
+          # 1. Force scan when fewer than 2 devices are configured so AUv3 finds lights without App Group
+          old_scan = "var needScan = false"
+          new_scan = "var needScan = (settings.devices.count < 2)"
+          code = code.replace(old_scan, new_scan, 1)
+
+          # 2. Auto-register any discovered iStrip light (ISP-* or advertising IStrip.serviceUUID)
+          old_disc = "// Saved light found by name (first run in this process, or identifiers differ per process)."
+          new_disc = """// Auto-add iStrip lights when App Group is unavailable (e.g. free Apple ID sideload)
+                  if wantsConnections && links[name] == nil && settings.devices.count < 2 && (name.uppercased().hasPrefix("ISP") || services.contains(IStrip.serviceUUID)) {
+                      let ref = DeviceRef(name: name, appIdentifier: role == .app ? peripheral.identifier : nil, auIdentifier: role == .plugin ? peripheral.identifier : nil, enabled: true)
+                      settings.devices.append(ref)
+                      links[name] = Link(name: name)
+                      _ = SharedStore.shared.updateGlobal { g in
+                          if !g.devices.contains(where: { $0.name == name }) {
+                              g.devices.append(ref)
+                          }
+                      }
+                  }
+                  // Saved light found by name (first run in this process, or identifiers differ per process)."""
+          code = code.replace(old_disc, new_disc, 1)
+
+          with open("Shared/BLELightEngine.swift", "w") as f:
+              f.write(code)
+          EOF
+
       - name: Detect Scheme and Build Unsigned App
         run: |
           SCHEME=$(xcodebuild -project LightPilot.xcodeproj -list -json | python3 -c "import sys, json; print(json.load(sys.stdin)['project']['schemes'][0])")
